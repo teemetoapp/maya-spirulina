@@ -1,0 +1,1160 @@
+// =======================================================
+// Prisma Schema — Maya Spirulina DTC Platform
+// =======================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------
+
+enum OrderStatus {
+  PENDING // در انتظار پرداخت
+  PAID // پرداخت شده / در انتظار تایید انبار
+  PROCESSING // در حال بسته‌بندی و آماده‌سازی
+  SHIPPED // تحویل پست / باربری شده با کد رهگیری
+  DELIVERED // تحویل مشتری شد (تریگر آزادسازی پاداش و کمیسیون)
+  CANCELLED // لغو شده
+  REFUNDED // مرجوع و عودت وجه
+}
+
+enum ProductFormat {
+  CAPSULE // کپسول ۵۰۰ میلی‌گرمی
+  POWDER // پودر میکرونیزه
+}
+
+enum ShippingMethod {
+  POST // پست پیشتاز
+  EXPRESS // پیک اکسپرس
+}
+
+enum AmbassadorTier {
+  SILVER // نقره‌ای
+  GOLD // طلایی
+  DIAMOND // الماس
+}
+
+enum PaymentMethod {
+  ONLINE_GATEWAY // درگاه پرداخت مستقیم بانکی (زرین‌پال / سداد / به‌پرداخت)
+  WALLET // کسر از اعتبار کیف پول
+  HYBRID // ترکیبی: مقداری از کیف پول + باقیمانده از درگاه
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
+}
+
+enum WalletTxType {
+  CREDIT // افزایش موجودی
+  DEBIT // کاهش موجودی
+}
+
+enum WalletTxReason {
+  ORDER_PAYMENT // پرداخت هزینه سفارش
+  ORDER_REFUND // بازگشت وجه سفارش لغو شده
+  REFERRAL_COMMISSION // پورسانت حاصل از فروش زیرمجموعه/معرفی
+  PURCHASE_CASHBACK // کش‌بک خرید مستقیم از فروشگاه
+  SETTLEMENT_PAYOUT // برداشت نقدی وجه به حساب شبا
+  ADMIN_ADJUSTMENT // شارژ/کسر دستی توسط مدیر ارشد
+}
+
+enum WalletTxStatus {
+  COMPLETED
+  PENDING
+  FAILED
+}
+
+enum PointType {
+  SIGNUP_BONUS // امتیاز خوش‌آمدگویی ثبت‌نام
+  PURCHASE_REWARD // امتیاز خرید محصول
+  REFERRAL_REWARD // امتیاز معرفی کاربر جدید
+  REDEEMED // تبدیل امتیاز به اعتبار کیف پول
+  EXPIRED // انقضای امتیاز
+}
+
+enum PointStatus {
+  PENDING // در انتظار تحویل سفارش (قفل موقت)
+  RELEASED // آزاد شده و قابل استفاده در کیف پول
+  REVOKED // باطل شده (به دلیل لغو سفارش)
+}
+
+enum SettlementStatus {
+  PENDING // در انتظار بررسی مالی
+  APPROVED // تایید شده و در صف واریز پایا/ساتنا
+  REJECTED // رد شده (با ذکر دلیل در توضیحات)
+  PAID // واریز انجام شد (همراه با کد رهگیری بانکی)
+}
+
+// -------------------------------------------------------
+// MODELS
+// -------------------------------------------------------
+
+model User {
+  id             String          @id @default(cuid())
+  phone          String          @unique // فرمت: 0912xxxxxxx
+  nationalCode   String?         @unique // کدملی معتبر ۱۰ رقمی
+  name           String? // نام و نام خانوادگی
+  email          String?
+  avatar         String?
+  ambassadorTier AmbassadorTier? // پله سفیر (فقط برای کاربران دارای نقش سفیر)
+  ambassadorSlug String?         @unique // آدرس صفحه داستان سفیر (/story/[slug])
+  shebaNumber    String? // شبا پیش‌فرض برای تسویه پورسانت
+  telegramChatId String?         @unique // اتصال حساب به ربات تلگرام
+  notifySms      Boolean         @default(true)
+  notifyTelegram Boolean         @default(true)
+  notifyEmail    Boolean         @default(true)
+  birthDate      String? // تاریخ تولد شمسی (YYYY/MM/DD)
+  // پیامک تبلیغاتی فقط با رضایت صریح؛ «لغو۱۱» یا لغو از پروفایل رضایت را برمی‌دارد
+  smsConsent     Boolean         @default(false)
+  smsConsentAt   DateTime?
+  smsOptOutAt    DateTime?
+  signupIp       String? // برای تشخیص معرفی خود (ضدتقلب)
+  winbackSentAt  DateTime? // آخرین پیام بازگرداندن مشتری غیرفعال
+
+  // اطلاعات تکمیلی پروفایل (کاربر خودش پر می‌کند؛ در «مخاطبان» دیده می‌شود)
+  gender           Gender?
+  province         String?
+  city             String?
+  occupation       String? // شغل یا تخصص (مثلاً پزشک، مربی ورزشی)
+  company          String? // محل کار، مطب یا باشگاه
+  landline         String? // تلفن ثابت
+  instagram        String?
+  website          String?
+  source           String? // آشنایی از طریق
+  interests        String? // هدف مصرف یا علاقه‌مندی
+  mobile2          String? // موبایل دوم
+  whatsapp         String? // شماره واتساپ
+  telegramUsername String? // آیدی تلگرام
+  education        String? // تحصیلات
+  maritalStatus    String? // وضعیت تأهل
+  preferredContact String? // راه ارتباطی ترجیحی
+  bestCallTime     String? // بهترین زمان تماس
+  healthNotes      String? // شرایط سلامت، حساسیت، داروها (برای مشاوره)
+  profileUpdatedAt DateTime?
+
+  // اطلاعات داخلی (فقط کارکنان؛ CRM)
+  tags               String[]   @default([])
+  crmNotes           String?
+  leadStage          LeadStage? // مرحله در قیف فروش (CRM)
+  ownerId            String? // مسئول ارتباط با این مخاطب
+  owner              User?      @relation("AccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  ownedContacts      User[]     @relation("AccountOwner")
+  // دسترسی‌های فردی علاوه بر نقش‌ها (مدیر ارشد از «مخاطبان» تعیین می‌کند)
+  extraPermissions   String[]   @default([])
+  revokedPermissions String[]   @default([])
+  chatBlocked        Boolean    @default(false)
+  chatBlockedAt      DateTime?
+  isActive           Boolean    @default(true)
+  isPhoneVerified    Boolean    @default(false)
+  referralCode       String     @unique // کد دعوت اختصاصی کاربر (مثلاً MAYA-8492)
+
+  // سیستم ارجاع (Referral Hierarchy)
+  referredById String?
+  referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    User[]  @relation("UserReferrals")
+
+  // روابط سیستم
+  wallet                 Wallet?
+  orders                 Order[]
+  addresses              Address[]
+  pointTransactions      PointTransaction[]
+  settlementRequests     SettlementRequest[]
+  otpLogs                OtpVerification[]
+  roles                  UserRole[]              @relation("UserRoles")
+  rolesAssigned          UserRole[]              @relation("RoleAssigner")
+  referredOrders         Order[]                 @relation("OrderReferrer")
+  tickets                SupportTicket[]
+  ticketMessages         TicketMessage[]
+  auditLogs              AuditLog[]
+  ambassadorApplications AmbassadorApplication[]
+  sampleKits             SampleKit[]
+  subscriptions          Subscription[]
+  chatMemberships        ChatMember[]
+  chatMessages           ChatMessage[]           @relation("ChatAuthor")
+  chatChannelsCreated    ChatChannel[]
+  ticketsAssigned        SupportTicket[]         @relation("TicketAssignee")
+  interactions           ContactInteraction[]    @relation("ContactInteractions")
+  interactionsLogged     ContactInteraction[]    @relation("InteractionAuthor")
+  liveChats              LiveChat[]              @relation("LiveChatVisitor")
+  liveChatsAssigned      LiveChat[]              @relation("LiveChatAgent")
+  liveChatMessages       LiveChatMessage[]
+  reviews                Review[]
+  returnRequests         ReturnRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@index([referralCode])
+}
+
+model Wallet {
+  id             String @id @default(cuid())
+  userId         String @unique
+  user           User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance        Int    @default(0) // به تومان
+  totalEarned    Int    @default(0) // کل پورسانت و کش‌بک‌های کسب شده
+  totalWithdrawn Int    @default(0) // کل واریزی‌های تسویه‌شده به شبا
+
+  transactions WalletTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WalletTransaction {
+  id           String         @id @default(cuid())
+  walletId     String
+  wallet       Wallet         @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount       Int // به تومان (همیشه مثبت، جهت با type مشخص می‌شود)
+  balanceAfter Int // مانده موجودی پس از انجام این تراکنش
+  type         WalletTxType
+  reason       WalletTxReason
+  status       WalletTxStatus @default(COMPLETED)
+  referenceId  String? // شناسه مرتبط (مثلاً شناسه سفارش، شناسه تسویه)
+  description  String // شرح تراکنش به فارسی
+
+  createdAt DateTime @default(now())
+
+  @@index([walletId])
+  @@index([reason])
+}
+
+model PointTransaction {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points      Int // مقدار امتیاز (مثبت برای کسب، منفی برای مصرف)
+  type        PointType
+  status      PointStatus @default(PENDING)
+  orderId     String? // در صورت اتصال به سفارش خاص
+  order       Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  description String // دلیل اعطای امتیاز
+  releasedAt  DateTime? // تاریخ فعال‌سازی پس از تحویل نهایی سفارش
+  expiresAt   DateTime? // تاریخ انقضا (در صورت وجود)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SettlementRequest {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount         Int // مبلغ درخواستی تسویه (تومان)
+  shebaNumber    String // شماره شبا به همراه IR (26 کاراکتر)
+  bankName       String? // نام بانک صادرکننده
+  accountHolder  String // نام و نام خانوادگی صاحب حساب
+  status         SettlementStatus @default(PENDING)
+  adminNotes     String? // یادداشت ادمین (در صورت رد یا توضیحات واریز)
+  bankReceiptRef String? // شماره پیگیری فیش حواله پایا/ساتنا
+  processedAt    DateTime? // تاریخ بررسی و اعمال وضعیت
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Product {
+  id                 String   @id @default(cuid())
+  slug               String   @unique // آدرس یکتای سئو (اسلاگ)
+  title              String // عنوان محصول (فارسی)
+  subtitle           String? // زیرعنوان یا شعار محصول
+  description        String // توضیحات کامل و جدول ارزش غذایی
+  shortDescription   String? // خلاصه ویژگی‌ها
+  images             String[] // آرایه آدرس تصاویر
+  benefits           String[] // لیست مزایای کلیدی به صورت تگ
+  dosageInstructions String? // دستور و طریقه مصرف
+  isFeatured         Boolean  @default(false) // محصول قهرمان صفحه اصلی
+  isActive           Boolean  @default(true)
+  sortOrder          Int      @default(0)
+
+  variants ProductVariant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// هر واریانت یک کالای قابل فروش (SKU) است: ترکیب «فرم مصرف» و «دوره مصرف»
+model ProductVariant {
+  id              String        @id @default(cuid())
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku             String        @unique
+  title           String // مثلاً «بسته ۶۰ روزه طلایی»
+  format          ProductFormat // کپسول یا پودر
+  durationDays    Int // دوره مصرف (۳۰ / ۶۰ / ۱۲۰ روز)
+  packDescription String? // مثلاً «۲ قوطی ۱۲۰ عددی (مجموعاً ۲۴۰ کپسول)»
+  badge           String? // برچسب تبلیغاتی (پرفروش‌ترین، به‌صرفه‌ترین)
+  price           Int // قیمت فروش (تومان)
+  compareAtPrice  Int? // قیمت قبل از تخفیف
+  costPrice       Int           @default(0) // بهای تمام‌شده متغیر (برای گزارش سود؛ هزینه‌های ثابت جدا در حسابداری کم می‌شوند)
+  fullCostPrice   Int           @default(0) // بهای تمام‌شده کامل = متغیر + سهم هزینه‌های ثابت (مبنای قیمت‌گذاری)
+  overheadUnits   Float         @default(1) // سهم این بسته از سربار ماهانه (برحسب واحد تولید)
+  targetMargin    Int? // حاشیه سود هدف (درصد از قیمت فروش)
+  stock           Int           @default(0)
+  lowStockAlert   Int           @default(10)
+  weightGrams     Int?
+  isActive        Boolean       @default(true)
+  sortOrder       Int           @default(0)
+
+  orderItems      OrderItem[]
+  batches         InventoryBatch[]
+  warehouseStocks WarehouseStock[]
+  stockTransfers  StockTransfer[]
+  costItems       VariantCostItem[]
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subscriptions Subscription[]
+
+  @@index([productId])
+}
+
+// بچ تولید برای کنترل انقضا و ردیابی آزمایشگاهی
+model InventoryBatch {
+  id             String         @id @default(cuid())
+  variantId      String
+  variant        ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  batchCode      String         @unique
+  quantity       Int
+  productionDate DateTime
+  expiryDate     DateTime
+  labReportUrl   String?
+  // ردیابی عمومی با QR روی بسته (/batch/<کد>) — فقط اطلاعات مستند
+  harvestDate    DateTime? // تاریخ برداشت از مزرعه
+  labName        String? // آزمایشگاه انجام‌دهنده
+  labSummary     String? // خلاصه نتیجه، دقیقاً مطابق برگه آزمایش
+  isPublic       Boolean        @default(false)
+  warehouseId    String? // انبار محل نگهداری (خالی = انبار پیش‌فرض)
+  warehouse      Warehouse?     @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  alertedAt      DateTime? // زمان ارسال هشدار نزدیک شدن انقضا
+  notes          String?
+  createdAt      DateTime       @default(now())
+
+  @@index([expiryDate])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique // شماره سفارش خوانا (مانند ORD-140508-4921)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status      OrderStatus @default(PENDING)
+
+  // مبالغ مالی (تماماً به تومان) — همه در سرور محاسبه می‌شوند
+  totalProductAmount Int // جمع مبلغ محصولات بدون تخفیف
+  discountAmount     Int            @default(0) // تخفیف کوپن یا تخفیف سفیر
+  walletCreditUsed   Int            @default(0) // مبلغ پرداخت شده با کیف پول
+  shippingFee        Int            @default(0) // هزینه ارسال پستی
+  payableAmount      Int // مبلغ نهایی قابل پرداخت از طریق درگاه
+  couponCode         String?
+  shippingMethod     ShippingMethod @default(POST)
+  customerNote       String?
+
+  // سفیر معرف و پورسانت
+  referrerId         String?
+  referrer           User?   @relation("OrderReferrer", fields: [referrerId], references: [id], onDelete: SetNull)
+  commissionPercent  Int     @default(0)
+  commissionAmount   Int     @default(0)
+  commissionReleased Boolean @default(false)
+
+  // اطلاعات پرداخت بانکی
+  paymentMethod    PaymentMethod @default(ONLINE_GATEWAY)
+  paymentStatus    PaymentStatus @default(UNPAID)
+  gatewayAuthority String? // کد ارجاع اولیه درگاه (Authority)
+  gatewayRefId     String? // شماره پیگیری تایید شده تراکنش بانکی (RefID)
+  paidAt           DateTime?
+
+  // اطلاعات پستی و تحویل‌گیرنده
+  shippingRecipient  String
+  shippingPhone      String
+  shippingProvince   String
+  shippingCity       String
+  shippingAddress    String
+  shippingPostalCode String
+  trackingCode       String? // کد رهگیری پستی مرسوله ۲۴ رقمی
+  shippedAt          DateTime?
+  deliveredAt        DateTime? // تاریخ تحویل نهایی (تریگر واریز پاداش‌ها)
+  refillDueAt        DateTime? // پایان دوره مصرف (ماژول یادآوری تمدید مصرف)
+  refillRemindedAt   DateTime? // زمان ارسال یادآوری تمدید
+  adminNote          String?
+  shippingCarrier    String? // POST | TIPAX | COURIER | OTHER
+
+  // منبع فروش (گزارش «فروش از کجا آمد»)
+  salesChannel String? // AMBASSADOR | REFILL | WINBACK | COUPON | UTM | DIRECT
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  fraudFlags   String[] @default([]) // دلایل رد پاداش معرفی یا تخفیف سفیر
+
+  // صورتحساب رسمی (سامانه مودیان)
+  invoiceNumber     Int?      @unique
+  invoicedAt        DateTime?
+  reviewRequestedAt DateTime? // پیامک نظرسنجی بعد از تحویل
+
+  items             OrderItem[]
+  pointTransactions PointTransaction[]
+  sampleKit         SampleKit?
+  review            Review?
+  returnRequest     ReturnRequest?
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  warehouseId String? // انبار مبدأ ارسال
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([referrerId])
+  @@index([refillDueAt])
+}
+
+model OrderItem {
+  id           String         @id @default(cuid())
+  orderId      String
+  order        Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId    String
+  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  productTitle String // ثبت نام کالا در زمان خرید
+  sku          String
+  unitPrice    Int // قیمت واحد در لحظه ثبت سفارش (تومان)
+  unitCost     Int            @default(0) // بهای تمام‌شده واحد در لحظه خرید
+  quantity     Int            @default(1)
+  totalPrice   Int
+
+  @@index([orderId])
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  userId     String
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String  @default("آدرس من") // منزل، محل کار، باشگاه
+  recipient  String
+  phone      String
+  province   String
+  city       String
+  address    String
+  postalCode String
+  isDefault  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model OtpVerification {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String // کد هش شده یا کد ۶ رقمی
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  attempts  Int      @default(0)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+}
+
+model Setting {
+  id          String  @id @default(cuid())
+  key         String  @unique // کلید تنظیمات (مثلاً REFERRAL_COMMISSION_PERCENT)
+  value       String // مقدار (رشته یا JSON)
+  description String? // توضیح کارکرد به فارسی
+
+  updatedAt DateTime @updatedAt
+}
+
+// -------------------------------------------------------
+// سطح دسترسی مبتنی بر مجوز (RBAC)
+// -------------------------------------------------------
+
+// نقش‌ها داده هستند: مدیر ارشد نقش می‌سازد و مجوزهایش را تعیین می‌کند
+model Role {
+  id          String     @id @default(cuid())
+  key         String     @unique // شناسه لاتین (super_admin، customer، ...)
+  name        String // نام فارسی نقش
+  description String?
+  isSystem    Boolean    @default(false) // نقش‌های سیستمی قابل حذف نیستند
+  permissions String[] // کلیدهای مجوز (src/lib/rbac/permissions.ts)
+  users       UserRole[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserRole {
+  userId       String
+  user         User     @relation("UserRoles", fields: [userId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedBy   User?    @relation("RoleAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt   DateTime @default(now())
+
+  @@id([userId, roleId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String // مثلاً role.assign، order.status
+  target    String? // شناسه موجودیت هدف
+  details   Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
+
+// -------------------------------------------------------
+// فروش و بازاریابی
+// -------------------------------------------------------
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+model Coupon {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  description String?
+  type        CouponType
+  value       Int // درصد یا مبلغ تومان
+  minAmount   Int        @default(0)
+  maxDiscount Int? // سقف تخفیف برای کوپن درصدی
+  maxUses     Int?
+  usedCount   Int        @default(0)
+  expiresAt   DateTime?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+}
+
+enum SampleKitStatus {
+  DELIVERED // تحویل به بیمار / مراجع
+  FOLLOWED_UP // پیگیری روز سوم انجام شد
+  CONVERTED // تبدیل به سفارش
+  LOST // ریزش
+}
+
+// کیت سمپل مطب و قیف پیگیری ۳ روزه
+model SampleKit {
+  id               String          @id @default(cuid())
+  code             String          @unique
+  ambassadorId     String
+  ambassador       User            @relation(fields: [ambassadorId], references: [id], onDelete: Cascade)
+  recipientName    String
+  recipientPhone   String
+  status           SampleKitStatus @default(DELIVERED)
+  deliveredAt      DateTime        @default(now())
+  followUpAt       DateTime // deliveredAt + ۳ روز
+  remindedAt       DateTime? // زمان ارسال یادآوری پیگیری به سفیر
+  convertedOrderId String?         @unique
+  convertedOrder   Order?          @relation(fields: [convertedOrderId], references: [id], onDelete: SetNull)
+  notes            String?
+  createdAt        DateTime        @default(now())
+
+  @@index([status, followUpAt])
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AmbassadorApplication {
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName      String
+  profession    String
+  city          String
+  socialLink    String?
+  audience      String?
+  licenseNumber String?
+  shebaNumber   String?
+  motivation    String?
+  status        ApplicationStatus @default(PENDING)
+  reviewNote    String?
+  createdAt     DateTime          @default(now())
+  reviewedAt    DateTime?
+}
+
+// -------------------------------------------------------
+// پشتیبانی
+// -------------------------------------------------------
+
+enum TicketStatus {
+  OPEN // جدید، منتظر پاسخ
+  IN_PROGRESS // در حال بررسی
+  ANSWERED // پاسخ داده شد، منتظر مشتری
+  CLOSED
+}
+
+// نوع درخواست: پشتیبانی عمومی یا مشاوره تغذیه (پرتال مشاور)
+enum TicketKind {
+  SUPPORT
+  CONSULTATION
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model SupportTicket {
+  id              String          @id @default(cuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject         String
+  kind            TicketKind      @default(SUPPORT)
+  status          TicketStatus    @default(OPEN)
+  priority        TicketPriority  @default(NORMAL)
+  orderId         String?
+  assigneeId      String?
+  assignee        User?           @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  firstResponseAt DateTime? // اولین پاسخ کارکنان (برای میانگین زمان پاسخ)
+  closedAt        DateTime?
+  rating          Int? // رضایت مشتری ۱ تا ۵ پس از بسته شدن
+  ratingComment   String?
+  messages        TicketMessage[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([status])
+  @@index([kind])
+}
+
+model TicketMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  isStaff   Boolean       @default(false)
+  createdAt DateTime      @default(now())
+}
+
+// -------------------------------------------------------
+// اعلان‌ها: پیامک، تلگرام، ایمیل
+// -------------------------------------------------------
+
+enum NotificationChannel {
+  SMS
+  TELEGRAM
+  EMAIL
+}
+
+enum NotificationAudience {
+  CUSTOMER // صاحب سفارش / کاربر مرتبط با رویداد
+  AMBASSADOR // سفیر معرف
+  ROLE // همه کاربران یک نقش (roleKey)
+  TELEGRAM_GROUP // گروه یا کانال تلگرام سازمانی (chatId)
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+// قالب متن هر رویداد برای هر کانال
+model NotificationTemplate {
+  id         String              @id @default(cuid())
+  event      String // کلید رویداد (src/lib/notifications/events.ts)
+  channel    NotificationChannel
+  subject    String? // عنوان ایمیل
+  body       String // متن با متغیرهای {{name}}
+  smsPattern String? // کد پترن پنل پیامک (در صورت استفاده)
+  isActive   Boolean             @default(true)
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([event, channel])
+}
+
+// قانون مسیریابی: هر رویداد برای چه کسی از کدام کانال ارسال شود
+model NotificationRule {
+  id        String               @id @default(cuid())
+  event     String
+  channel   NotificationChannel
+  audience  NotificationAudience
+  roleKey   String? // برای audience = ROLE
+  target    String? // chatId گروه تلگرام برای audience = TELEGRAM_GROUP
+  isActive  Boolean              @default(true)
+  createdAt DateTime             @default(now())
+
+  @@index([event])
+}
+
+model NotificationLog {
+  id        String              @id @default(cuid())
+  event     String
+  channel   NotificationChannel
+  recipient String // شماره، chatId یا ایمیل
+  userId    String?
+  status    NotificationStatus  @default(QUEUED)
+  subject   String?
+  body      String
+  error     String?
+  attempts  Int                 @default(0)
+  createdAt DateTime            @default(now())
+  sentAt    DateTime?
+
+  @@index([status])
+  @@index([event])
+  @@index([createdAt])
+}
+
+enum ExpenseCategory {
+  MARKETING // تبلیغات و بازاریابی
+  SHIPPING // هزینه ارسال پرداختی به پست و پیک
+  PACKAGING // بسته‌بندی
+  SALARY // حقوق و دستمزد
+  RENT // اجاره و قبوض
+  GATEWAY // کارمزد درگاه و بانک
+  OTHER // سایر
+}
+
+// هزینه‌های عملیاتی؛ سود خالص = فروش خالص − بهای تمام‌شده − پورسانت − هزینه‌ها
+model Expense {
+  id          String          @id @default(cuid())
+  title       String
+  category    ExpenseCategory @default(OTHER)
+  amount      Int // تومان
+  spentAt     DateTime
+  note        String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+
+  @@index([spentAt])
+}
+
+// ---------------- بهای تمام‌شده هر بسته ----------------
+enum CostCategory {
+  RAW_MATERIAL // ماده اولیه (پودر اسپیرولینا)
+  CAPSULE // کپسول یا قرص‌سازی
+  PACKAGING // قوطی، درب، سیل
+  LABEL // برچسب و چاپ
+  BOX // جعبه و بروشور
+  LAB_TEST // آزمایش و مجوز
+  PRODUCTION // دستمزد تولید و بسته‌بندی
+  LOGISTICS // حمل تا انبار
+  OVERHEAD // سربار
+  OTHER
+}
+
+// اجزای بهای تمام‌شده یک بسته؛ مجموع آن‌ها در ProductVariant.costPrice ذخیره می‌شود
+model VariantCostItem {
+  id        String         @id @default(cuid())
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  title     String
+  category  CostCategory   @default(OTHER)
+  quantity  Float          @default(1) // مقدار مصرف در هر بسته (مثلاً ۱۲۰ عدد کپسول)
+  unitCost  Int // هزینه هر واحد (تومان)؛ اگر به منبع وصل باشد از نرخ منبع خوانده می‌شود
+  inputId   String? // منبع مشترک (آب، برق، پودر، …)
+  input     CostInput?     @relation(fields: [inputId], references: [id], onDelete: SetNull)
+  note      String?
+  sortOrder Int            @default(0)
+  updatedAt DateTime       @updatedAt
+  createdAt DateTime       @default(now())
+
+  @@index([variantId])
+}
+
+// ---------------- پیام‌ها و هماهنگی داخلی ----------------
+enum ChatChannelType {
+  GROUP
+  DIRECT
+}
+
+model ChatChannel {
+  id          String          @id @default(cuid())
+  name        String?
+  description String?
+  type        ChatChannelType @default(GROUP)
+  createdById String?
+  createdBy   User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  members     ChatMember[]
+  messages    ChatMessage[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model ChatMember {
+  id         String      @id @default(cuid())
+  channelId  String
+  channel    ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isAdmin    Boolean     @default(false)
+  lastReadAt DateTime?
+  joinedAt   DateTime    @default(now())
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id          String      @id @default(cuid())
+  channelId   String
+  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User        @relation("ChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body        String
+  editedAt    DateTime?
+  editedById  String? // اگر مدیر ویرایش کرده باشد
+  deletedAt   DateTime?
+  deletedById String?
+  createdAt   DateTime    @default(now())
+
+  @@index([channelId, createdAt])
+}
+
+// بدون استفاده: قابلیت اشتراک حذف شد. جدول فقط برای جلوگیری از حذف داده در دیتابیس‌های موجود نگه داشته شده است.
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+model Subscription {
+  id           String             @id @default(cuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variantId    String
+  variant      ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  intervalDays Int
+  nextRunAt    DateTime
+  status       SubscriptionStatus @default(ACTIVE)
+  lastOrderId  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([status, nextRunAt])
+}
+
+// وضعیت ماژول‌ها (خاموش/روشن) — فهرست و قوانین ماژول‌ها در src/lib/modules/registry.ts
+model ModuleState {
+  key         String   @id
+  enabled     Boolean  @default(true)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------- بهای تمام‌شده: منابع و هزینه‌های ثابت ----------------
+
+// نرخ منابع مشترک؛ تغییر نرخ، برگه هزینه همه بسته‌های مصرف‌کننده را به‌روز می‌کند
+model CostInput {
+  id        String            @id @default(cuid())
+  title     String // مثلاً «آب»
+  unit      String // مثلاً «لیتر»
+  price     Int // تومان به ازای هر واحد
+  category  CostCategory      @default(OTHER)
+  note      String?
+  items     VariantCostItem[]
+  updatedAt DateTime          @updatedAt
+  createdAt DateTime          @default(now())
+}
+
+enum FixedCostCategory {
+  SALARY // حقوق و دستمزد
+  RENT // اجاره
+  UTILITIES // قبوض و انرژی
+  DEPRECIATION // استهلاک تجهیزات
+  MARKETING // بازاریابی ثابت
+  SOFTWARE // نرم‌افزار و سرویس‌ها
+  OTHER
+}
+
+// هزینه ثابت ماهانه؛ سهم هر واحد = جمع ماهانه ÷ تولید ماهانه
+model FixedCost {
+  id            String            @id @default(cuid())
+  title         String
+  category      FixedCostCategory @default(OTHER)
+  monthlyAmount Int
+  isActive      Boolean           @default(true)
+  note          String?
+  updatedAt     DateTime          @updatedAt
+  createdAt     DateTime          @default(now())
+}
+
+// ---------------- CRM: تعاملات، رضایت و پیگیری ----------------
+
+enum LeadStage {
+  NEW // تازه
+  CONTACTED // تماس گرفته شد
+  INTERESTED // علاقه‌مند
+  CUSTOMER // مشتری
+  LOYAL // وفادار
+  AT_RISK // در خطر ریزش
+  LOST // از دست رفته
+}
+
+enum InteractionChannel {
+  CALL
+  SMS
+  WHATSAPP
+  TELEGRAM
+  EMAIL
+  VISIT
+  NOTE
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum FeedbackTopic {
+  PRODUCT
+  SHIPPING
+  SETTLEMENT
+  PRICE
+  SUPPORT
+  CONSULTATION
+  WEBSITE
+  OTHER
+}
+
+model ContactInteraction {
+  id           String             @id @default(cuid())
+  contactId    String
+  contact      User               @relation("ContactInteractions", fields: [contactId], references: [id], onDelete: Cascade)
+  authorId     String?
+  author       User?              @relation("InteractionAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  channel      InteractionChannel @default(CALL)
+  summary      String
+  sentiment    Sentiment          @default(NEUTRAL)
+  topic        FeedbackTopic?
+  followUpAt   DateTime? // یادآوری پیگیری
+  followUpDone Boolean            @default(false)
+  createdAt    DateTime           @default(now())
+
+  @@index([contactId])
+  @@index([followUpAt, followUpDone])
+}
+
+// ---------------- گفت‌وگوی آنلاین سایت ----------------
+
+enum LiveChatTopic {
+  SUPPORT
+  CONSULTATION
+  SALES
+}
+
+enum LiveChatStatus {
+  WAITING // منتظر کارشناس
+  ACTIVE
+  CLOSED
+}
+
+model LiveChat {
+  id            String            @id @default(cuid())
+  visitorKey    String // کوکی مرورگر بازدیدکننده
+  userId        String?
+  user          User?             @relation("LiveChatVisitor", fields: [userId], references: [id], onDelete: SetNull)
+  guestName     String?
+  guestPhone    String?
+  topic         LiveChatTopic     @default(SUPPORT)
+  status        LiveChatStatus    @default(WAITING)
+  assigneeId    String?
+  assignee      User?             @relation("LiveChatAgent", fields: [assigneeId], references: [id], onDelete: SetNull)
+  page          String? // صفحه‌ای که گفت‌وگو از آن شروع شد
+  rating        Int?
+  ratingComment String?
+  firstReplyAt  DateTime?
+  lastMessageAt DateTime          @default(now())
+  closedAt      DateTime?
+  messages      LiveChatMessage[]
+  createdAt     DateTime          @default(now())
+
+  @@index([visitorKey])
+  @@index([status, lastMessageAt])
+  @@index([guestPhone])
+}
+
+model LiveChatMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  chat      LiveChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  fromStaff Boolean  @default(false)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
+}
+
+// -------------------------------------------------------
+// نظر و رضایت خریدار (نظرسنجی بعد از تحویل + نظر تأییدشده در سایت)
+// -------------------------------------------------------
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Review {
+  id          String       @id @default(cuid())
+  orderId     String       @unique
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating      Int // رضایت کلی ۱ تا ۵
+  body        String?
+  displayName String? // نامی که در سایت نمایش داده می‌شود
+  publish     Boolean      @default(false) // اجازه خریدار برای انتشار در سایت
+  status      ReviewStatus @default(PENDING)
+  reply       String? // پاسخ برند
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status])
+}
+
+// -------------------------------------------------------
+// مرجوعی
+// -------------------------------------------------------
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+model ReturnRequest {
+  id          String       @id @default(cuid())
+  orderId     String       @unique
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason      String
+  details     String?
+  status      ReturnStatus @default(REQUESTED)
+  adminNote   String?
+  handledById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status])
+}
+
+// -------------------------------------------------------
+// کمپین پیامکی گروهی (فقط مشتریان دارای رضایت پیامک)
+// -------------------------------------------------------
+
+model SmsCampaign {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  segment     String
+  recipients  Int
+  createdById String?
+  createdAt   DateTime @default(now())
+}
+
+// -------------------------------------------------------
+// محتوای آموزشی و بلاگ (سئو)
+// -------------------------------------------------------
+
+model Article {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String? // خلاصه برای فهرست و توضیحات متا
+  body        String // متن ساده؛ هر خط خالی یک پاراگراف، خط شروع با ## زیرعنوان
+  category    String    @default("آموزش")
+  coverUrl    String?
+  sources     String? // منابع (هر خط یک منبع)
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  authorId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([published, publishedAt])
+}
+
+// ==============================================================
+// چند انبار: موجودی فیزیکی هر انبار. ProductVariant.stock موجودی قابل فروش
+// است (فیزیکی منهای سفارش‌های پرداخت‌شده‌ای که هنوز ارسال نشده‌اند).
+// ==============================================================
+model Warehouse {
+  id           String           @id @default(cuid())
+  name         String           @unique
+  city         String?
+  isDefault    Boolean          @default(false)
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  stocks       WarehouseStock[]
+  batches      InventoryBatch[]
+  orders       Order[]
+  transfersOut StockTransfer[]  @relation("TransferFrom")
+  transfersIn  StockTransfer[]  @relation("TransferTo")
+}
+
+model WarehouseStock {
+  warehouseId String
+  warehouse   Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity    Int            @default(0)
+
+  @@id([warehouseId, variantId])
+}
+
+model StockTransfer {
+  id          String         @id @default(cuid())
+  fromId      String
+  from        Warehouse      @relation("TransferFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId        String
+  to          Warehouse      @relation("TransferTo", fields: [toId], references: [id], onDelete: Cascade)
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity    Int
+  note        String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+
+  @@index([createdAt])
+}

@@ -1,0 +1,56 @@
+{
+  "name": "maya-spirulina",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:backup": "bash scripts/backup-db.sh",
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "design:pick": "awesome-design-md",
+    "db:seed": "prisma db seed",
+    "db:demo": "tsx --env-file=.env prisma/seed-demo.ts",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@types/pg": "^8.23.1",
+    "clsx": "^2.1.1",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.13",
+    "motion": "^14.6.0",
+    "next": "16.4.2",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.23.1",
+    "prisma": "^6.19.3",
+    "qrcode": "^1.5.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "^3.7.0",
+    "vazirmatn": "^33.0.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/turbopack": "^4",
+    "@types/ioredis": "^4.28.10",
+    "@types/node": "^20",
+    "@types/nodemailer": "^6.4.17",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "awesome-design-md": "^1.1.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
